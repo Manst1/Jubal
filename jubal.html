@@ -5,309 +5,424 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>War Simulator</title>
 <style>
-  :root { --bg:#0b1a2b; --panel:rgba(10,20,34,.88); --text:#e8eef6; --muted:#8ea3bb; --accent:#ffb020; }
-  * { box-sizing:border-box; }
-  html, body { margin:0; height:100%; background:var(--bg); color:var(--text);
-    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; overflow:hidden; }
-  canvas { position:absolute; inset:0; width:100%; height:100%; display:block; cursor:crosshair; touch-action:none; }
-  .bar { position:absolute; left:12px; right:12px; top:12px; display:flex; gap:10px; align-items:center;
-    justify-content:space-between; pointer-events:none; }
-  .pill { background:var(--panel); border:1px solid rgba(255,255,255,.08); border-radius:12px;
-    padding:10px 14px; font-size:14px; backdrop-filter:blur(6px); pointer-events:auto; }
-  .title { font-weight:700; letter-spacing:.08em; text-transform:uppercase; font-size:13px; }
-  .title b { color:var(--accent); }
-  #status { flex:1; text-align:center; color:var(--muted); }
-  #status.ok { color:#7ee0a0; } #status.err { color:#ff8a80; }
-  #swatch { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:8px; vertical-align:-1px;
-    background:#555; border:1px solid rgba(255,255,255,.4); }
-  button { font:inherit; color:var(--text); background:transparent; border:1px solid rgba(255,255,255,.25);
-    border-radius:8px; padding:4px 10px; cursor:pointer; }
-  button:hover { border-color:var(--accent); color:var(--accent); }
-  #loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-    background:var(--bg); font-size:16px; color:var(--muted); z-index:5; text-align:center; padding:20px; }
-  .hint { position:absolute; left:12px; bottom:12px; font-size:12px; color:var(--muted); }
+:root{--bg:#0b1a2b;--panel:rgba(10,20,34,.92);--text:#e8eef6;--muted:#8ea3bb;--accent:#ffb020}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair;touch-action:none}
+.bar{position:absolute;left:12px;right:12px;top:12px;display:flex;gap:10px;align-items:center;pointer-events:none}
+.pill,#panel{background:var(--panel);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:10px 14px;font-size:14px;backdrop-filter:blur(6px);pointer-events:auto}
+.title{font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-size:13px}.title b{color:var(--accent)}
+#status{flex:1;text-align:center;color:var(--muted)}#status.ok{color:#7ee0a0}#status.err{color:#ff8a80}#status.mode{color:var(--accent)}
+#swatch{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:8px;vertical-align:-1px;background:#555;border:1px solid rgba(255,255,255,.4)}
+button{font:inherit;font-size:13px;color:var(--text);background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:5px 10px;cursor:pointer}
+button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}button:disabled{opacity:.35;cursor:not-allowed}
+#panel{position:absolute;right:12px;top:64px;width:280px;max-height:calc(100% - 76px);overflow:auto}
+#gold{font-size:24px;font-weight:700;color:var(--accent)}.muted,small{color:var(--muted)}
+h4{margin:14px 0 6px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.item{display:grid;grid-template-columns:38px 1fr auto;gap:8px;align-items:center;padding:6px 0;border-top:1px solid rgba(255,255,255,.06)}
+.item img{width:38px;height:30px;object-fit:contain}.row{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+#loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--muted);z-index:5;text-align:center;padding:20px}
+.hint{position:absolute;left:12px;bottom:12px;font-size:12px;color:var(--muted)}
+@media(max-width:700px){#panel{top:auto;bottom:0;right:0;left:0;width:auto;max-height:42%;border-radius:12px 12px 0 0}.hint{display:none}.title{display:none}}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="loading">Loading map…</div>
-
 <div class="bar">
   <div class="pill title">War <b>Simulator</b></div>
   <div class="pill" id="status">Connecting…</div>
-  <div class="pill"><span id="swatch"></span><span id="count">0 players</span>
-    <button id="reset" title="Remove your spot (for testing)" style="margin-left:8px">Reset</button></div>
+  <div class="pill"><span id="swatch"></span><span id="count">0 players</span> <button id="reset" style="margin-left:8px" title="Testing only">Reset</button></div>
 </div>
-<div class="hint">Click land to claim your start • Drag to pan • Scroll to zoom</div>
+<div id="panel">
+  <div><span id="gold">–</span> <small>gold</small></div>
+  <small id="income"></small><br><small id="arsenal"></small>
+  <div id="dyn"></div>
+</div>
+<div class="hint">Drag = pan • Scroll = zoom • Esc = cancel action</div>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script>
-/* ============ CONFIG ============ */
-const firebaseConfig = {
-  apiKey: "AIzaSyCCby5bCZ33VDQLPRfqg3ZF6onM63Vwq5g",
-  authDomain: "jubal-game.firebaseapp.com",
-  databaseURL: "https://jubal-game-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "jubal-game",
-  storageBucket: "jubal-game.firebasestorage.app",
-  messagingSenderId: "848857854803",
-  appId: "1:848857854803:web:38c9822501c479513627a6",
-  measurementId: "G-GJZBMGC9TM"
-};
-const MAP_URL   = "https://i.imgur.com/tOE8nXo.png";
-const GRID_W    = 480;    // number of "pixels" (cells) across the map
-const START_R   = 3.2;    // radius (in cells) of the starting territory
-const WATER     = "#1b5e9b";
+/* ================= CONFIG ================= */
+const firebaseConfig={apiKey:"AIzaSyCCby5bCZ33VDQLPRfqg3ZF6onM63Vwq5g",authDomain:"jubal-game.firebaseapp.com",databaseURL:"https://jubal-game-default-rtdb.europe-west1.firebasedatabase.app",projectId:"jubal-game",storageBucket:"jubal-game.firebasestorage.app",messagingSenderId:"848857854803",appId:"1:848857854803:web:38c9822501c479513627a6",measurementId:"G-GJZBMGC9TM"};
+const MAP_URL="https://i.imgur.com/tOE8nXo.png";
+const IMG={sub:"https://i.imgur.com/E1LpKx2.png",harbor:"https://i.imgur.com/Mhcwjyi.png",missile:"https://i.imgur.com/62l43xr.png"};
+const GRID_W=480, START_R=3.2, WATER="#1b5e9b";
+const START_GOLD=100000, BASE_GOLD=25, COST={harbor:2800,sub:15000,missile:200};
+const SUB_SPEED=10;      // pixels (cells) per minute
+const VISION=8, RANGE=12, RESTOCK=12, BLAST=2.2, SUBHIT=1.6;
+const income=n=>Math.ceil((n*8+BASE_GOLD*100)/100);   // 0.08/pixel + 25, rounded up (integer math avoids float errors)
+const fmt=n=>Math.floor(n).toLocaleString("en-US");
 
-/* ============ STATE ============ */
-const canvas = document.getElementById("c");
-const ctx = canvas.getContext("2d");
-const statusEl = document.getElementById("status");
-const countEl = document.getElementById("count");
-const swatchEl = document.getElementById("swatch");
+/* ================= STATE ================= */
+const $=id=>document.getElementById(id);
+const canvas=$("c"),ctx=canvas.getContext("2d");
+let imgW,imgH,GRID_H,cellSize,land,water,comp,baseCanvas,terrCanvas,tctx;
+let players={},harbors={},subs={},occ=new Set(),prevSubs={};
+let myKey,db,pRef,hRef,sRef,eRef,offset=0;
+let view={x:0,y:0,s:1},hover=null,mode=null,sel=null,booms=[],lastDyn="";
+const imgs={};
+const now=()=>Date.now()+offset;
+const me=()=>players[myKey];
+const idx=(x,y)=>y*GRID_W+x;
+const inb=(x,y)=>x>=0&&y>=0&&x<GRID_W&&y<GRID_H;
+const dist=(a,b,c,d)=>Math.hypot(a-c,b-d);
+function setStatus(m,c=""){$("status").textContent=m;$("status").className="pill "+c}
+const hints={harbor:"Click on water to place your harbor (Esc to cancel)",relocate:"Click water in the same body of water to move there",attack:"Click a target within range (12 px) to fire",pickharbor:"Click one of your harbors, then press Buy Submarine"};
+function setMode(m){mode=m;m?setStatus(hints[m],"mode"):idleStatus()}
+function idleStatus(){me()?setStatus("Select a submarine or harbor, or buy something in the shop","ok"):setStatus("Choose your starting position on land")}
 
-let img, imgW, imgH, GRID_H, cellSize;
-let land;                       // Uint8Array, 1 = land
-let baseCanvas;                 // water + map pre-rendered
-let players = {};               // key -> {color, cells[]}
-let myKey = null, db = null, playersRef = null;
-let hover = null;               // {cx, cy}
-let view = { x:0, y:0, s:1 };
+/* ================= IDENTITY (per browser) ================= */
+function getPlayerKey(){
+  let id=localStorage.getItem("warsim_id");
+  if(!id){id="u_"+(crypto.randomUUID?crypto.randomUUID().replace(/-/g,""):Math.random().toString(36).slice(2)+Date.now());localStorage.setItem("warsim_id",id)}
+  return id;
+}
 
-function setStatus(msg, cls="") { statusEl.textContent = msg; statusEl.className = "pill " + cls; statusEl.id = "status"; }
-
-/* ============ PLAYER IDENTITY (one player = one IP) ============ */
-async function getPlayerKey() {
-  try {
-    const r = await fetch("https://api.ipify.org?format=json");
-    const { ip } = await r.json();
-    return "ip_" + ip.replace(/[.:]/g, "_");   // Firebase keys can't contain "."
-  } catch (e) {
-    console.warn("IP lookup failed, using local id instead", e);
-    let id = localStorage.getItem("warsim_id");
-    if (!id) { id = "local_" + Math.random().toString(36).slice(2); localStorage.setItem("warsim_id", id); }
-    return id;
+/* ================= MAP ================= */
+function loadImg(src){return new Promise(r=>{const i=new Image();i.crossOrigin="anonymous";i.onload=()=>r(i);i.onerror=()=>r(i);i.src=src})}
+async function loadMap(){
+  const img=await loadImg(MAP_URL);
+  if(!img.naturalWidth)throw new Error("Could not load the map image");
+  imgW=img.naturalWidth;imgH=img.naturalHeight;GRID_H=Math.round(GRID_W*imgH/imgW);cellSize=imgW/GRID_W;
+  const m=document.createElement("canvas");m.width=GRID_W;m.height=GRID_H;
+  const mc=m.getContext("2d",{willReadFrequently:true});mc.drawImage(img,0,0,GRID_W,GRID_H);
+  const d=mc.getImageData(0,0,GRID_W,GRID_H).data,N=GRID_W*GRID_H;
+  land=new Uint8Array(N);water=new Uint8Array(N);
+  for(let i=0;i<N;i++){land[i]=d[i*4+3]>128?1:0;water[i]=land[i]?0:1}
+  // label connected bodies of water
+  comp=new Int32Array(N);let n=0;
+  for(let i=0;i<N;i++){
+    if(!water[i]||comp[i])continue;n++;const st=[i];comp[i]=n;
+    while(st.length){const c=st.pop(),x=c%GRID_W,y=(c/GRID_W)|0;
+      for(const[dx,dy]of[[1,0],[-1,0],[0,1],[0,-1]]){const nx=x+dx,ny=y+dy;if(!inb(nx,ny))continue;const j=idx(nx,ny);if(water[j]&&!comp[j]){comp[j]=n;st.push(j)}}}
   }
+  baseCanvas=document.createElement("canvas");baseCanvas.width=imgW;baseCanvas.height=imgH;
+  const b=baseCanvas.getContext("2d");b.fillStyle=WATER;b.fillRect(0,0,imgW,imgH);b.drawImage(img,0,0);
+  terrCanvas=document.createElement("canvas");terrCanvas.width=imgW;terrCanvas.height=imgH;tctx=terrCanvas.getContext("2d");
 }
 
-/* ============ MAP LOADING ============ */
-function loadMap() {
-  return new Promise((resolve, reject) => {
-    img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      imgW = img.naturalWidth; imgH = img.naturalHeight;
-      GRID_H = Math.round(GRID_W * imgH / imgW);
-      cellSize = imgW / GRID_W;
-
-      // land mask: transparent = water, everything else = land
-      const m = document.createElement("canvas");
-      m.width = GRID_W; m.height = GRID_H;
-      const mctx = m.getContext("2d", { willReadFrequently:true });
-      mctx.drawImage(img, 0, 0, GRID_W, GRID_H);
-      const d = mctx.getImageData(0, 0, GRID_W, GRID_H).data;
-      land = new Uint8Array(GRID_W * GRID_H);
-      for (let i = 0; i < land.length; i++) land[i] = d[i*4 + 3] > 128 ? 1 : 0;
-
-      // base layer: blue water with the map on top
-      baseCanvas = document.createElement("canvas");
-      baseCanvas.width = imgW; baseCanvas.height = imgH;
-      const b = baseCanvas.getContext("2d");
-      b.fillStyle = WATER; b.fillRect(0, 0, imgW, imgH);
-      b.drawImage(img, 0, 0);
-      resolve();
-    };
-    img.onerror = () => reject(new Error("Could not load the map image"));
-    img.src = MAP_URL;
-  });
-}
-
-/* ============ TERRITORY LOGIC ============ */
-const idx = (x, y) => y * GRID_W + x;
-
-// all cells claimed by anyone (optionally from a given players object)
-function occupiedSet(p) {
-  const s = new Set();
-  for (const k in p) (p[k].cells || []).forEach(c => s.add(c));
-  return s;
-}
-
-// flood-fill land cells around a start cell, within START_R, skipping occupied cells
-function territoryAround(cx, cy, occ) {
-  if (cx < 0 || cy < 0 || cx >= GRID_W || cy >= GRID_H) return [];
-  if (!land[idx(cx, cy)] || occ.has(idx(cx, cy))) return [];
-  const out = [], seen = new Set([idx(cx, cy)]), q = [[cx, cy]];
-  while (q.length) {
-    const [x, y] = q.shift();
-    out.push(idx(x, y));
-    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-      const nx = x + dx, ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= GRID_W || ny >= GRID_H) continue;
-      const i = idx(nx, ny);
-      if (seen.has(i)) continue;
-      seen.add(i);
-      if (!land[i] || occ.has(i)) continue;
-      if (Math.hypot(nx - cx, ny - cy) > START_R) continue;
-      q.push([nx, ny]);
-    }
-  }
+/* ================= TERRITORY ================= */
+function territoryAround(cx,cy,o){
+  if(!inb(cx,cy)||!land[idx(cx,cy)]||o.has(idx(cx,cy)))return[];
+  const out=[],seen=new Set([idx(cx,cy)]),q=[[cx,cy]];
+  while(q.length){const[x,y]=q.shift();out.push(idx(x,y));
+    for(const[dx,dy]of[[1,0],[-1,0],[0,1],[0,-1]]){const nx=x+dx,ny=y+dy;if(!inb(nx,ny))continue;const i=idx(nx,ny);
+      if(seen.has(i))continue;seen.add(i);if(!land[i]||o.has(i)||Math.hypot(nx-cx,ny-cy)>START_R)continue;q.push([nx,ny])}}
   return out;
 }
-
-function randomColor(existing) {
-  const hues = existing.map(c => c.h);
-  let best = null;
-  for (let t = 0; t < 40; t++) {
-    const h = Math.floor(Math.random() * 360);
-    const dist = hues.length ? Math.min(...hues.map(o => Math.min(Math.abs(o - h), 360 - Math.abs(o - h)))) : 360;
-    if (!best || dist > best.dist) best = { h, dist };
-    if (dist > 25) break;
-  }
-  const s = 75 + Math.floor(Math.random() * 20), l = 48 + Math.floor(Math.random() * 10);
-  return { h: best.h, css: `hsl(${best.h} ${s}% ${l}%)` };
+function occOf(p){const s=new Set();for(const k in p)(p[k].cells||[]).forEach(c=>s.add(c));return s}
+function randomColor(hues){
+  let best=null;
+  for(let t=0;t<40;t++){const h=Math.floor(Math.random()*360);
+    const d=hues.length?Math.min(...hues.map(o=>Math.min(Math.abs(o-h),360-Math.abs(o-h)))):360;
+    if(!best||d>best.d)best={h,d};if(d>25)break}
+  return{h:best.h,css:`hsl(${best.h} ${75+Math.floor(Math.random()*20)}% ${48+Math.floor(Math.random()*10)}%)`};
 }
-
-async function claimSpot(cx, cy) {
-  if (players[myKey]) return setStatus("You already have a starting position.", "err");
-  const preview = territoryAround(cx, cy, occupiedSet(players));
-  if (!preview.length) return setStatus("Pick free land — water and other players' land are blocked.", "err");
-
+async function claimSpot(cx,cy){
+  if(me())return;
+  if(!territoryAround(cx,cy,occ).length)return setStatus("Pick free land — water and taken land are blocked.","err");
   setStatus("Claiming…");
-  try {
-    // Transaction on the whole players node so two people can never overlap
-    const res = await playersRef.transaction(cur => {
-      cur = cur || {};
-      if (cur[myKey]) return;                                   // already placed -> abort
-      const cells = territoryAround(cx, cy, occupiedSet(cur));
-      if (!cells.length) return;                                // blocked -> abort
-      const existing = Object.values(cur).map(p => ({ h: p.hue }));
-      const col = randomColor(existing);
-      cur[myKey] = { color: col.css, hue: col.h, cells, cx, cy, joined: Date.now() };
+  try{
+    const r=await pRef.transaction(cur=>{
+      cur=cur||{};if(cur[myKey])return;
+      const cells=territoryAround(cx,cy,occOf(cur));if(!cells.length)return;
+      const col=randomColor(Object.values(cur).map(p=>p.hue).filter(h=>typeof h==="number"));
+      cur[myKey]={color:col.css,hue:col.h,cells,cx,cy,gold:START_GOLD,missiles:0,lastTick:now()};
       return cur;
     });
-    if (res.committed) setStatus("Start position claimed!", "ok");
-    else setStatus("That spot was just taken or is invalid — try another.", "err");
-  } catch (e) {
-    console.error(e);
-    setStatus("Firebase error (check database rules): " + e.message, "err");
-  }
+    r.committed?setStatus("Start position claimed!","ok"):setStatus("That spot was just taken — try another.","err");
+  }catch(e){console.error(e);setStatus("Firebase error: "+e.message,"err")}
 }
 
-/* ============ RENDERING ============ */
-function resize() {
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = innerWidth * dpr; canvas.height = innerHeight * dpr;
-  draw();
+/* ================= ECONOMY ================= */
+let ticking=false;
+function tick(){
+  const m=me();if(!m||!m.lastTick||ticking||now()-m.lastTick<60000)return;
+  ticking=true;
+  pRef.child(myKey).transaction(c=>{
+    if(!c||!c.lastTick)return c;
+    const n=Math.floor((now()-c.lastTick)/60000);if(n<1)return;
+    c.gold=(c.gold||0)+n*income((c.cells||[]).length);c.lastTick+=n*60000;return c;
+  }).finally(()=>ticking=false);
 }
-function fitView() {
-  const s = Math.min(innerWidth / imgW, innerHeight / imgH) * 0.96;
-  view = { s, x: (innerWidth - imgW * s) / 2, y: (innerHeight - imgH * s) / 2 };
-}
-function draw() {
-  if (!baseCanvas) return;
-  const dpr = window.devicePixelRatio || 1;
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = WATER; ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.setTransform(dpr * view.s, 0, 0, dpr * view.s, dpr * view.x, dpr * view.y);
-  ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(baseCanvas, 0, 0);
-
-  const cs = cellSize, pad = 0.4;
-  const rect = i => ctx.fillRect((i % GRID_W) * cs - pad, Math.floor(i / GRID_W) * cs - pad, cs + pad * 2, cs + pad * 2);
-
-  for (const k in players) {
-    ctx.fillStyle = players[k].color;
-    (players[k].cells || []).forEach(rect);
-  }
-  // outline my territory
-  if (players[myKey]) {
-    ctx.strokeStyle = "#fff"; ctx.lineWidth = Math.max(1, cs * 0.25);
-    ctx.beginPath();
-    const mine = new Set(players[myKey].cells || []);
-    mine.forEach(i => {
-      const x = (i % GRID_W) * cs, y = Math.floor(i / GRID_W) * cs;
-      if (!mine.has(i - GRID_W)) { ctx.moveTo(x, y); ctx.lineTo(x + cs, y); }
-      if (!mine.has(i + GRID_W)) { ctx.moveTo(x, y + cs); ctx.lineTo(x + cs, y + cs); }
-      if (!mine.has(i - 1) || x === 0) { ctx.moveTo(x, y); ctx.lineTo(x, y + cs); }
-      if (!mine.has(i + 1)) { ctx.moveTo(x + cs, y); ctx.lineTo(x + cs, y + cs); }
-    });
-    ctx.stroke();
-  }
-  // hover preview
-  if (hover && !players[myKey]) {
-    const cells = territoryAround(hover.cx, hover.cy, occupiedSet(players));
-    ctx.fillStyle = cells.length ? "rgba(255,255,255,.55)" : "rgba(255,70,70,.5)";
-    if (cells.length) cells.forEach(rect);
-    else ctx.fillRect(hover.cx * cs, hover.cy * cs, cs, cs);
-  }
+async function spend(amount,extra){
+  const r=await pRef.child(myKey).transaction(c=>{
+    if(!c||(c.gold||0)<amount)return;c.gold-=amount;if(extra)extra(c);return c});
+  if(!r.committed)setStatus("Not enough gold.","err");
+  return r.committed;
 }
 
-/* ============ INPUT: pan / zoom / click ============ */
-const toCell = (px, py) => {
-  const ix = (px - view.x) / view.s, iy = (py - view.y) / view.s;
-  return { cx: Math.floor(ix / cellSize), cy: Math.floor(iy / cellSize) };
+/* ================= SUBMARINE MOVEMENT ================= */
+function posOf(s,t){
+  const p=s.path;if(!p)return[0,0];if(p.length<4)return[p[0],p[1]];
+  let d=SUB_SPEED*Math.max(0,t-s.t0)/60000;
+  for(let i=0;i+3<p.length;i+=2){const dx=p[i+2]-p[i],dy=p[i+3]-p[i+1],L=Math.hypot(dx,dy);
+    if(d<=L){const f=L?d/L:0;return[p[i]+dx*f,p[i+1]+dy*f]}d-=L}
+  return[p[p.length-2],p[p.length-1]];
+}
+function los(a,b){
+  const L=Math.hypot(b[0]-a[0],b[1]-a[1]),n=Math.max(1,Math.ceil(L/.25));
+  for(let k=0;k<=n;k++){const x=Math.floor(a[0]+(b[0]-a[0])*k/n),y=Math.floor(a[1]+(b[1]-a[1])*k/n);if(!inb(x,y)||!water[idx(x,y)])return false}
+  return true;
+}
+function findPath(ax,ay,bx,by){
+  const N=GRID_W*GRID_H,prev=new Int32Array(N).fill(-1),q=new Int32Array(N);
+  let h=0,t=0;const s=idx(ax,ay),e=idx(bx,by);prev[s]=s;q[t++]=s;
+  while(h<t){const c=q[h++];if(c===e)break;const x=c%GRID_W,y=(c/GRID_W)|0;
+    for(const[dx,dy]of[[1,0],[-1,0],[0,1],[0,-1]]){const nx=x+dx,ny=y+dy;if(!inb(nx,ny))continue;const i=idx(nx,ny);
+      if(prev[i]!==-1||!water[i])continue;prev[i]=c;q[t++]=i}}
+  if(prev[e]===-1)return null;
+  const pts=[];for(let c=e;;c=prev[c]){pts.push([c%GRID_W+.5,((c/GRID_W)|0)+.5]);if(c===s)break}
+  return pts.reverse();
+}
+function smooth(p){
+  const out=[p[0]];let a=0;
+  for(let j=1;j<p.length;j++)if(!los(p[a],p[j])){out.push(p[j-1]);a=j-1}
+  out.push(p[p.length-1]);return out;
+}
+function nearestWater(x,y,comp0){
+  for(let r=0;r<=10;r++)for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){
+    if(Math.max(Math.abs(dx),Math.abs(dy))!==r)continue;const nx=x+dx,ny=y+dy;
+    if(inb(nx,ny)&&water[idx(nx,ny)]&&(!comp0||comp[idx(nx,ny)]===comp0))return[nx,ny]}
+  return null;
+}
+
+/* ================= ACTIONS ================= */
+const myHarbors=()=>Object.entries(harbors).filter(([,h])=>h.owner===myKey);
+const mySubs=()=>Object.entries(subs).filter(([,s])=>s.owner===myKey);
+
+async function placeHarbor(cx,cy){
+  if(!inb(cx,cy)||!water[idx(cx,cy)])return setStatus("Harbors must be placed on water.","err");
+  if(Object.values(harbors).some(h=>dist(h.x,h.y,cx+.5,cy+.5)<3))return setStatus("Too close to another harbor.","err");
+  setMode(null);
+  if(await spend(COST.harbor)){hRef.push({owner:myKey,x:cx+.5,y:cy+.5});setStatus("Harbor built.","ok")}
+}
+function spawnNear(h){
+  const c0=comp[idx(Math.floor(h.x),Math.floor(h.y))];
+  for(let r=2;r<=8;r++)for(let a=0;a<16;a++){
+    const x=Math.floor(h.x+Math.cos(a*Math.PI/8)*r),y=Math.floor(h.y+Math.sin(a*Math.PI/8)*r);
+    if(inb(x,y)&&water[idx(x,y)]&&comp[idx(x,y)]===c0)return[x+.5,y+.5]}
+  return[h.x,h.y];
+}
+async function buySub(hid){
+  const h=harbors[hid];if(!h||h.owner!==myKey)return;
+  const[x,y]=spawnNear(h);setMode(null);
+  if(await spend(COST.sub)){sRef.push({owner:myKey,path:[x,y],t0:now(),missiles:0});setStatus("Submarine launched.","ok")}
+}
+async function buyMissiles(n){if(await spend(COST.missile*n,c=>c.missiles=(c.missiles||0)+n))setStatus(`Bought ${n} missile${n>1?"s":""}.`,"ok")}
+
+async function relocate(fx,fy){
+  const s=subs[sel&&sel.id];if(!s)return setMode(null);
+  const tx=Math.floor(fx),ty=Math.floor(fy);
+  if(!inb(tx,ty)||!water[idx(tx,ty)])return setStatus("Click on water.","err");
+  const[px,py]=posOf(s,now());let sx=Math.floor(px),sy=Math.floor(py);
+  if(!inb(sx,sy)||!water[idx(sx,sy)]){const w=nearestWater(sx,sy);if(!w)return;[sx,sy]=w}
+  if(comp[idx(sx,sy)]!==comp[idx(tx,ty)])return setStatus("Not reachable — that is a different body of water.","err");
+  const raw=findPath(sx,sy,tx,ty);if(!raw)return setStatus("No route found.","err");
+  const pts=smooth(raw),flat=[px,py];
+  for(const p of pts)flat.push(p[0],p[1]);
+  setMode(null);
+  sRef.child(sel.id).update({path:flat,t0:now()});
+  setStatus("Submarine under way.","ok");
+}
+async function fire(fx,fy){
+  const s=subs[sel&&sel.id];if(!s)return setMode(null);
+  const t=now(),[px,py]=posOf(s,t);
+  if(dist(px,py,fx,fy)>RANGE)return setStatus("Target out of range (12 px).","err");
+  const r=await sRef.child(sel.id).child("missiles").transaction(c=>c>0?c-1:undefined);
+  if(!r.committed)return setStatus("No missiles on board — restock at a harbor.","err");
+  setMode(null);
+  const e=eRef.push();e.set({x:fx,y:fy,t});setTimeout(()=>e.remove(),6000);
+  // sea targets: any submarine (friend or foe, seen or unseen) near the impact
+  for(const[id,o]of Object.entries(subs)){const[ox,oy]=posOf(o,t);if(dist(ox,oy,fx,fy)<=SUBHIT)sRef.child(id).remove()}
+  // land targets: blast wipes claimed pixels
+  const hit=i=>dist((i%GRID_W)+.5,((i/GRID_W)|0)+.5,fx,fy)<=BLAST;
+  for(const k in players)if((players[k].cells||[]).some(hit))pRef.child(k).child("cells").transaction(a=>a?a.filter(i=>!hit(i)):a);
+  setStatus("Missile launched!","ok");
+}
+async function load(n){
+  const s=subs[sel&&sel.id],m=me();if(!s||!m)return;
+  n=n==="all"?(m.missiles||0):n;if(n<1||(m.missiles||0)<n)return setStatus("Not enough missiles in your arsenal.","err");
+  const r=await pRef.child(myKey).child("missiles").transaction(c=>(c||0)>=n?c-n:undefined);
+  if(r.committed){await sRef.child(sel.id).child("missiles").transaction(c=>(c||0)+n);setStatus(`Loaded ${n} missile${n>1?"s":""}.`,"ok")}
+}
+
+/* ================= PANEL ================= */
+function dynHTML(){
+  const m=me();if(!m)return'<p class="muted">Click on land to choose your starting position.</p>';
+  const g=m.gold||0,hc=myHarbors().length;
+  const b=(act,label,cost,attr="",off=false)=>`<button data-act="${act}" ${attr} ${(g<cost||off)?"disabled":""}>${label}</button>`;
+  let h=`<h4>Shop</h4>
+  <div class="item"><img src="${IMG.harbor}"><div><b>Harbor</b><br><small>${fmt(COST.harbor)} gold</small></div>${b("harbor","Place",COST.harbor)}</div>
+  <div class="item"><img src="${IMG.sub}"><div><b>Submarine</b><br><small>${fmt(COST.sub)} gold${hc?"":" • needs a harbor"}</small></div>${b("sub","Buy",COST.sub,"",!hc)}</div>
+  <div class="item"><img src="${IMG.missile}"><div><b>Missile</b><br><small>${fmt(COST.missile)} gold</small></div><div>${b("missile","×1",COST.missile,'data-n="1"')} ${b("missile","×10",COST.missile*10,'data-n="10"')}</div></div>`;
+  if(sel&&sel.type==="harbor"&&harbors[sel.id]){
+    h+=`<h4>Selected: Harbor</h4><div class="row">${b("buysub","Buy Submarine ("+fmt(COST.sub)+")",COST.sub)}</div>`;
+  }else if(sel&&sel.type==="sub"&&subs[sel.id]){
+    const s=subs[sel.id],[px,py]=posOf(s,now()),near=myHarbors().some(([,hh])=>dist(hh.x,hh.y,px,py)<=RESTOCK),a=m.missiles||0;
+    h+=`<h4>Selected: Submarine</h4><div>Missiles on board: <b>${s.missiles||0}</b></div>
+    <div class="row"><button data-act="relocate">Relocate</button><button data-act="attack" ${(s.missiles||0)<1?"disabled":""}>Attack</button></div>
+    <div><small>Restock ${near?"(in harbor range)":"(move within 12 px of your harbor)"}</small></div>
+    <div class="row">${[1,5,"all"].map(n=>`<button data-act="load" data-n="${n}" ${(!near||a<1)?"disabled":""}>Load ${n==="all"?"all":"+"+n}</button>`).join("")}</div>`;
+  }
+  return h;
+}
+function updatePanel(){
+  const m=me();
+  $("gold").textContent=m?fmt(m.gold||0):"–";
+  if(m){
+    const n=(m.cells||[]).length,left=Math.max(0,Math.ceil((60000-((now()-(m.lastTick||now()))%60000))/1000));
+    $("income").textContent=`+${income(n)} gold/min (${n} px) • next payout in ${left}s`;
+    $("arsenal").textContent=`Arsenal: ${m.missiles||0} missiles`;
+    $("swatch").style.background=m.color;
+  }else{$("income").textContent="";$("arsenal").textContent=""}
+  const h=dynHTML();if(h!==lastDyn){$("dyn").innerHTML=h;lastDyn=h}
+}
+$("panel").addEventListener("click",e=>{
+  const b=e.target.closest("button[data-act]");if(!b||b.disabled)return;
+  const a=b.dataset.act,n=b.dataset.n;
+  if(a==="harbor")setMode("harbor");
+  else if(a==="sub"){const hs=myHarbors();hs.length===1?buySub(hs[0][0]):setMode("pickharbor")}
+  else if(a==="buysub")buySub(sel.id);
+  else if(a==="missile")buyMissiles(+n);
+  else if(a==="relocate")setMode("relocate");
+  else if(a==="attack")setMode("attack");
+  else if(a==="load")load(n==="all"?"all":+n);
+  updatePanel();
+});
+$("reset").onclick=async()=>{
+  if(!me()||!confirm("Remove your territory, harbors and submarines? (testing)"))return;
+  mySubs().forEach(([id])=>sRef.child(id).remove());myHarbors().forEach(([id])=>hRef.child(id).remove());
+  await pRef.child(myKey).remove();sel=null;setMode(null);
 };
-let drag = null;
-canvas.addEventListener("pointerdown", e => {
-  canvas.setPointerCapture(e.pointerId);
-  drag = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false };
-});
-canvas.addEventListener("pointermove", e => {
-  if (drag) {
-    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-    if (Math.hypot(dx, dy) > 5) drag.moved = true;
-    if (drag.moved) { view.x = drag.vx + dx; view.y = drag.vy + dy; }
+
+/* ================= RENDER ================= */
+function rebuildTerr(){
+  if(!tctx)return;tctx.clearRect(0,0,imgW,imgH);occ=new Set();const cs=cellSize,pad=.4;
+  for(const k in players){tctx.fillStyle=players[k].color;
+    for(const i of(players[k].cells||[])){occ.add(i);tctx.fillRect((i%GRID_W)*cs-pad,((i/GRID_W)|0)*cs-pad,cs+2*pad,cs+2*pad)}}
+  if(me()){
+    const mine=new Set(me().cells||[]);tctx.strokeStyle="#fff";tctx.lineWidth=Math.max(1,cs*.25);tctx.beginPath();
+    mine.forEach(i=>{const x=(i%GRID_W)*cs,y=((i/GRID_W)|0)*cs;
+      if(!mine.has(i-GRID_W)){tctx.moveTo(x,y);tctx.lineTo(x+cs,y)}
+      if(!mine.has(i+GRID_W)){tctx.moveTo(x,y+cs);tctx.lineTo(x+cs,y+cs)}
+      if(!mine.has(i-1)||x===0){tctx.moveTo(x,y);tctx.lineTo(x,y+cs)}
+      if(!mine.has(i+1)){tctx.moveTo(x+cs,y);tctx.lineTo(x+cs,y+cs)}});
+    tctx.stroke();
   }
-  hover = toCell(e.clientX, e.clientY);
-  draw();
-});
-canvas.addEventListener("pointerup", e => {
-  if (drag && !drag.moved) { const c = toCell(e.clientX, e.clientY); claimSpot(c.cx, c.cy); }
-  drag = null;
-});
-canvas.addEventListener("pointerleave", () => { hover = null; draw(); });
-canvas.addEventListener("wheel", e => {
-  e.preventDefault();
-  const f = Math.exp(-e.deltaY * 0.0015);
-  const ns = Math.min(Math.max(view.s * f, 0.15), 40);
-  view.x = e.clientX - (e.clientX - view.x) * (ns / view.s);
-  view.y = e.clientY - (e.clientY - view.y) * (ns / view.s);
-  view.s = ns; draw();
-}, { passive:false });
-addEventListener("resize", () => { resize(); });
+}
+function icon(name,x,y,w,color,selected){
+  const cs=cellSize,im=imgs[name],px=x*cs,py=y*cs;
+  ctx.beginPath();ctx.arc(px,py,cs*(w/2+.4),0,7);ctx.strokeStyle=selected?"#fff":color;ctx.lineWidth=cs*(selected?.35:.25);ctx.stroke();
+  if(im&&im.naturalWidth){const W=w*cs,H=W*im.naturalHeight/im.naturalWidth;ctx.drawImage(im,px-W/2,py-H/2,W,H)}
+  else{ctx.fillStyle=color;ctx.beginPath();ctx.arc(px,py,cs*w/3,0,7);ctx.fill()}
+}
+function circle(x,y,r,stroke,dash,fill){
+  const cs=cellSize;ctx.beginPath();ctx.arc(x*cs,y*cs,r*cs,0,7);
+  if(fill){ctx.fillStyle=fill;ctx.fill()}
+  ctx.setLineDash(dash?[cs*.8,cs*.6]:[]);ctx.strokeStyle=stroke;ctx.lineWidth=cs*.2;ctx.stroke();ctx.setLineDash([]);
+}
+function draw(){
+  if(!baseCanvas)return;
+  const dpr=devicePixelRatio||1,cs=cellSize,t=now();
+  ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle=WATER;ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.setTransform(dpr*view.s,0,0,dpr*view.s,dpr*view.x,dpr*view.y);
+  ctx.drawImage(baseCanvas,0,0);ctx.drawImage(terrCanvas,0,0);
+  const col=o=>(players[o]&&players[o].color)||"#999";
 
-document.getElementById("reset").onclick = async () => {
-  if (playersRef && myKey && players[myKey]) { await playersRef.child(myKey).remove(); setStatus("Position removed. Pick a new one."); }
-};
+  for(const[id,h]of Object.entries(harbors))icon("harbor",h.x,h.y,5,col(h.owner),sel&&sel.id===id);
 
-/* ============ BOOT ============ */
-(async function init() {
-  try {
+  // submarines (others only when within VISION of one of mine)
+  const mine=mySubs().map(([id,s])=>[id,s,posOf(s,t)]);
+  for(const[id,s]of Object.entries(subs)){
+    const p=s.owner===myKey?mine.find(m=>m[0]===id)[2]:posOf(s,t);
+    if(s.owner!==myKey&&!mine.some(m=>dist(m[2][0],m[2][1],p[0],p[1])<=VISION))continue;
+    icon("sub",p[0],p[1],3.2,col(s.owner),sel&&sel.id===id);
+  }
+  // selected sub overlays
+  const sm=sel&&sel.type==="sub"&&mine.find(m=>m[0]===sel.id);
+  if(sm){
+    const[,s,p]=sm;circle(p[0],p[1],VISION,"rgba(255,255,255,.5)",true);
+    if(mode==="attack")circle(p[0],p[1],RANGE,"rgba(255,90,90,.9)",false,"rgba(255,90,90,.08)");
+    if(s.path&&s.path.length>=4){ctx.beginPath();ctx.moveTo(p[0]*cs,p[1]*cs);
+      let d=SUB_SPEED*Math.max(0,t-s.t0)/60000,started=false;
+      for(let i=0;i+3<s.path.length;i+=2){const L=dist(s.path[i],s.path[i+1],s.path[i+2],s.path[i+3]);
+        if(started||d<=L){started=true;ctx.lineTo(s.path[i+2]*cs,s.path[i+3]*cs)}else d-=L}
+      ctx.setLineDash([cs*.6,cs*.6]);ctx.strokeStyle="rgba(255,255,255,.7)";ctx.lineWidth=cs*.15;ctx.stroke();ctx.setLineDash([])}
+  }
+  // hover feedback
+  if(hover){
+    const cx=Math.floor(hover.fx),cy=Math.floor(hover.fy);
+    if(!me()){const cells=territoryAround(cx,cy,occ);ctx.fillStyle=cells.length?"rgba(255,255,255,.55)":"rgba(255,70,70,.5)";
+      if(cells.length)cells.forEach(i=>ctx.fillRect((i%GRID_W)*cs,((i/GRID_W)|0)*cs,cs,cs));else ctx.fillRect(cx*cs,cy*cs,cs,cs)}
+    else if(mode==="harbor"){ctx.globalAlpha=.6;const ok=inb(cx,cy)&&water[idx(cx,cy)];icon("harbor",cx+.5,cy+.5,5,ok?"#7ee0a0":"#ff5a5a");ctx.globalAlpha=1}
+    else if(mode==="relocate"&&inb(cx,cy)){circle(cx+.5,cy+.5,1,water[idx(cx,cy)]?"#7ee0a0":"#ff5a5a",false)}
+    else if(mode==="attack"&&sm){const ok=dist(sm[2][0],sm[2][1],hover.fx,hover.fy)<=RANGE;circle(hover.fx,hover.fy,BLAST,ok?"#ffb020":"#ff5a5a",false,ok?"rgba(255,176,32,.25)":"rgba(255,90,90,.15)")}
+  }
+  // explosions
+  booms=booms.filter(b=>performance.now()-b.t0<1300);
+  for(const b of booms){const p=(performance.now()-b.t0)/1300;circle(b.x,b.y,BLAST*(.4+p),`rgba(255,160,40,${1-p})`,false,`rgba(255,110,30,${.6*(1-p)})`)}
+}
+function loop(){draw();requestAnimationFrame(loop)}
+
+/* ================= INPUT ================= */
+function resize(){const d=devicePixelRatio||1;canvas.width=innerWidth*d;canvas.height=innerHeight*d}
+function fitView(){const s=Math.min(innerWidth/imgW,innerHeight/imgH)*.96;view={s,x:(innerWidth-imgW*s)/2,y:(innerHeight-imgH*s)/2}}
+const toWorld=(px,py)=>({fx:(px-view.x)/view.s/cellSize,fy:(py-view.y)/view.s/cellSize});
+let drag=null;
+canvas.addEventListener("pointerdown",e=>{canvas.setPointerCapture(e.pointerId);drag={x:e.clientX,y:e.clientY,vx:view.x,vy:view.y,moved:false}});
+canvas.addEventListener("pointermove",e=>{
+  if(drag){const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.hypot(dx,dy)>5)drag.moved=true;if(drag.moved){view.x=drag.vx+dx;view.y=drag.vy+dy}}
+  hover=toWorld(e.clientX,e.clientY)});
+canvas.addEventListener("pointerup",e=>{if(drag&&!drag.moved){const w=toWorld(e.clientX,e.clientY);onClick(w.fx,w.fy)}drag=null});
+canvas.addEventListener("pointerleave",()=>hover=null);
+canvas.addEventListener("wheel",e=>{e.preventDefault();const ns=Math.min(Math.max(view.s*Math.exp(-e.deltaY*.0015),.15),40);
+  view.x=e.clientX-(e.clientX-view.x)*(ns/view.s);view.y=e.clientY-(e.clientY-view.y)*(ns/view.s);view.s=ns},{passive:false});
+addEventListener("resize",resize);
+addEventListener("keydown",e=>{if(e.key==="Escape")setMode(null)});
+
+function onClick(fx,fy){
+  const cx=Math.floor(fx),cy=Math.floor(fy);
+  if(!me())return claimSpot(cx,cy);
+  if(mode==="harbor")return placeHarbor(cx,cy);
+  if(mode==="relocate")return relocate(fx,fy);
+  if(mode==="attack")return fire(fx,fy);
+  let best=null,bd=3.5;
+  const t=now();
+  for(const[id,s]of mySubs()){const p=posOf(s,t),d=dist(p[0],p[1],fx,fy);if(d<bd){bd=d;best={type:"sub",id}}}
+  for(const[id,h]of myHarbors()){const d=dist(h.x,h.y,fx,fy)+.5;if(d<bd){bd=d;best={type:"harbor",id}}}
+  sel=best;if(mode==="pickharbor")setMode(null);updatePanel();
+}
+
+/* ================= BOOT ================= */
+(async function init(){
+  try{
     await loadMap();
-    fitView(); resize();
-    document.getElementById("loading").style.display = "none";
-  } catch (e) {
-    document.getElementById("loading").textContent = e.message;
-    return;
-  }
-  try {
-    myKey = await getPlayerKey();
-    firebase.initializeApp(firebaseConfig);
-    db = firebase.database();
-    playersRef = db.ref("players");
-    playersRef.on("value", snap => {
-      players = snap.val() || {};
-      countEl.textContent = Object.keys(players).length + " player" + (Object.keys(players).length === 1 ? "" : "s");
-      const me = players[myKey];
-      swatchEl.style.background = me ? me.color : "#555";
-      if (me) setStatus("Your territory is placed. Waiting for the war…", "ok");
-      else setStatus("Choose your starting position on land");
-      draw();
-    }, err => setStatus("Firebase error: " + err.message, "err"));
-  } catch (e) {
-    console.error(e);
-    setStatus("Could not connect to Firebase: " + e.message, "err");
-  }
+    for(const k in IMG)imgs[k]=await loadImg(IMG[k]);
+    fitView();resize();$("loading").style.display="none";requestAnimationFrame(loop);
+  }catch(e){$("loading").textContent=e.message;return}
+  try{
+    myKey=getPlayerKey();
+    firebase.initializeApp(firebaseConfig);db=firebase.database();
+    pRef=db.ref("players");hRef=db.ref("harbors");sRef=db.ref("subs");eRef=db.ref("explosions");
+    db.ref(".info/serverTimeOffset").on("value",s=>offset=s.val()||0);
+    pRef.on("value",s=>{
+      const first=!Object.keys(players).length&&!me();
+      players=s.val()||{};const c=Object.keys(players).length;
+      $("count").textContent=c+" player"+(c===1?"":"s");
+      rebuildTerr();updatePanel();if(!mode)idleStatus();
+    },err=>setStatus("Firebase error: "+err.message,"err"));
+    hRef.on("value",s=>{harbors=s.val()||{};if(sel&&sel.type==="harbor"&&!harbors[sel.id])sel=null;updatePanel()});
+    sRef.on("value",s=>{
+      subs=s.val()||{};
+      for(const id in prevSubs)if(!subs[id]&&prevSubs[id].owner===myKey)setStatus("One of your submarines was destroyed!","err");
+      prevSubs=subs;if(sel&&sel.type==="sub"&&!subs[sel.id])sel=null;updatePanel();
+    });
+    eRef.on("child_added",s=>{const v=s.val();if(v&&now()-v.t<4000)booms.push({x:v.x,y:v.y,t0:performance.now()})});
+    setInterval(()=>{tick();updatePanel()},400);
+  }catch(e){console.error(e);setStatus("Could not connect to Firebase: "+e.message,"err")}
 })();
 </script>
 </body>
