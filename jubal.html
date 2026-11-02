@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>War Simulator</title>
+<style>
+  :root { --bg:#0b1a2b; --panel:rgba(10,20,34,.88); --text:#e8eef6; --muted:#8ea3bb; --accent:#ffb020; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; overflow:hidden; }
+  canvas { position:absolute; inset:0; width:100%; height:100%; display:block; cursor:crosshair; touch-action:none; }
+  .bar { position:absolute; left:12px; right:12px; top:12px; display:flex; gap:10px; align-items:center;
+    justify-content:space-between; pointer-events:none; }
+  .pill { background:var(--panel); border:1px solid rgba(255,255,255,.08); border-radius:12px;
+    padding:10px 14px; font-size:14px; backdrop-filter:blur(6px); pointer-events:auto; }
+  .title { font-weight:700; letter-spacing:.08em; text-transform:uppercase; font-size:13px; }
+  .title b { color:var(--accent); }
+  #status { flex:1; text-align:center; color:var(--muted); }
+  #status.ok { color:#7ee0a0; } #status.err { color:#ff8a80; }
+  #swatch { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:8px; vertical-align:-1px;
+    background:#555; border:1px solid rgba(255,255,255,.4); }
+  button { font:inherit; color:var(--text); background:transparent; border:1px solid rgba(255,255,255,.25);
+    border-radius:8px; padding:4px 10px; cursor:pointer; }
+  button:hover { border-color:var(--accent); color:var(--accent); }
+  #loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    background:var(--bg); font-size:16px; color:var(--muted); z-index:5; text-align:center; padding:20px; }
+  .hint { position:absolute; left:12px; bottom:12px; font-size:12px; color:var(--muted); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="loading">Loading map…</div>
+
+<div class="bar">
+  <div class="pill title">War <b>Simulator</b></div>
+  <div class="pill" id="status">Connecting…</div>
+  <div class="pill"><span id="swatch"></span><span id="count">0 players</span>
+    <button id="reset" title="Remove your spot (for testing)" style="margin-left:8px">Reset</button></div>
+</div>
+<div class="hint">Click land to claim your start • Drag to pan • Scroll to zoom</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script>
+/* ============ CONFIG ============ */
+const firebaseConfig = {
+  apiKey: "AIzaSyCCby5bCZ33VDQLPRfqg3ZF6onM63Vwq5g",
+  authDomain: "jubal-game.firebaseapp.com",
+  databaseURL: "https://jubal-game-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "jubal-game",
+  storageBucket: "jubal-game.firebasestorage.app",
+  messagingSenderId: "848857854803",
+  appId: "1:848857854803:web:38c9822501c479513627a6",
+  measurementId: "G-GJZBMGC9TM"
+};
+const MAP_URL   = "https://i.imgur.com/tOE8nXo.png";
+const GRID_W    = 480;    // number of "pixels" (cells) across the map
+const START_R   = 3.2;    // radius (in cells) of the starting territory
+const WATER     = "#1b5e9b";
+
+/* ============ STATE ============ */
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const statusEl = document.getElementById("status");
+const countEl = document.getElementById("count");
+const swatchEl = document.getElementById("swatch");
+
+let img, imgW, imgH, GRID_H, cellSize;
+let land;                       // Uint8Array, 1 = land
+let baseCanvas;                 // water + map pre-rendered
+let players = {};               // key -> {color, cells[]}
+let myKey = null, db = null, playersRef = null;
+let hover = null;               // {cx, cy}
+let view = { x:0, y:0, s:1 };
+
+function setStatus(msg, cls="") { statusEl.textContent = msg; statusEl.className = "pill " + cls; statusEl.id = "status"; }
+
+/* ============ PLAYER IDENTITY (one player = one IP) ============ */
+async function getPlayerKey() {
+  try {
+    const r = await fetch("https://api.ipify.org?format=json");
+    const { ip } = await r.json();
+    return "ip_" + ip.replace(/[.:]/g, "_");   // Firebase keys can't contain "."
+  } catch (e) {
+    console.warn("IP lookup failed, using local id instead", e);
+    let id = localStorage.getItem("warsim_id");
+    if (!id) { id = "local_" + Math.random().toString(36).slice(2); localStorage.setItem("warsim_id", id); }
+    return id;
+  }
+}
+
+/* ============ MAP LOADING ============ */
+function loadMap() {
+  return new Promise((resolve, reject) => {
+    img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      imgW = img.naturalWidth; imgH = img.naturalHeight;
+      GRID_H = Math.round(GRID_W * imgH / imgW);
+      cellSize = imgW / GRID_W;
+
+      // land mask: transparent = water, everything else = land
+      const m = document.createElement("canvas");
+      m.width = GRID_W; m.height = GRID_H;
+      const mctx = m.getContext("2d", { willReadFrequently:true });
+      mctx.drawImage(img, 0, 0, GRID_W, GRID_H);
+      const d = mctx.getImageData(0, 0, GRID_W, GRID_H).data;
+      land = new Uint8Array(GRID_W * GRID_H);
+      for (let i = 0; i < land.length; i++) land[i] = d[i*4 + 3] > 128 ? 1 : 0;
+
+      // base layer: blue water with the map on top
+      baseCanvas = document.createElement("canvas");
+      baseCanvas.width = imgW; baseCanvas.height = imgH;
+      const b = baseCanvas.getContext("2d");
+      b.fillStyle = WATER; b.fillRect(0, 0, imgW, imgH);
+      b.drawImage(img, 0, 0);
+      resolve();
+    };
+    img.onerror = () => reject(new Error("Could not load the map image"));
+    img.src = MAP_URL;
+  });
+}
+
+/* ============ TERRITORY LOGIC ============ */
+const idx = (x, y) => y * GRID_W + x;
+
+// all cells claimed by anyone (optionally from a given players object)
+function occupiedSet(p) {
+  const s = new Set();
+  for (const k in p) (p[k].cells || []).forEach(c => s.add(c));
+  return s;
+}
+
+// flood-fill land cells around a start cell, within START_R, skipping occupied cells
+function territoryAround(cx, cy, occ) {
+  if (cx < 0 || cy < 0 || cx >= GRID_W || cy >= GRID_H) return [];
+  if (!land[idx(cx, cy)] || occ.has(idx(cx, cy))) return [];
+  const out = [], seen = new Set([idx(cx, cy)]), q = [[cx, cy]];
+  while (q.length) {
+    const [x, y] = q.shift();
+    out.push(idx(x, y));
+    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= GRID_W || ny >= GRID_H) continue;
+      const i = idx(nx, ny);
+      if (seen.has(i)) continue;
+      seen.add(i);
+      if (!land[i] || occ.has(i)) continue;
+      if (Math.hypot(nx - cx, ny - cy) > START_R) continue;
+      q.push([nx, ny]);
+    }
+  }
+  return out;
+}
+
+function randomColor(existing) {
+  const hues = existing.map(c => c.h);
+  let best = null;
+  for (let t = 0; t < 40; t++) {
+    const h = Math.floor(Math.random() * 360);
+    const dist = hues.length ? Math.min(...hues.map(o => Math.min(Math.abs(o - h), 360 - Math.abs(o - h)))) : 360;
+    if (!best || dist > best.dist) best = { h, dist };
+    if (dist > 25) break;
+  }
+  const s = 75 + Math.floor(Math.random() * 20), l = 48 + Math.floor(Math.random() * 10);
+  return { h: best.h, css: `hsl(${best.h} ${s}% ${l}%)` };
+}
+
+async function claimSpot(cx, cy) {
+  if (players[myKey]) return setStatus("You already have a starting position.", "err");
+  const preview = territoryAround(cx, cy, occupiedSet(players));
+  if (!preview.length) return setStatus("Pick free land — water and other players' land are blocked.", "err");
+
+  setStatus("Claiming…");
+  try {
+    // Transaction on the whole players node so two people can never overlap
+    const res = await playersRef.transaction(cur => {
+      cur = cur || {};
+      if (cur[myKey]) return;                                   // already placed -> abort
+      const cells = territoryAround(cx, cy, occupiedSet(cur));
+      if (!cells.length) return;                                // blocked -> abort
+      const existing = Object.values(cur).map(p => ({ h: p.hue }));
+      const col = randomColor(existing);
+      cur[myKey] = { color: col.css, hue: col.h, cells, cx, cy, joined: Date.now() };
+      return cur;
+    });
+    if (res.committed) setStatus("Start position claimed!", "ok");
+    else setStatus("That spot was just taken or is invalid — try another.", "err");
+  } catch (e) {
+    console.error(e);
+    setStatus("Firebase error (check database rules): " + e.message, "err");
+  }
+}
+
+/* ============ RENDERING ============ */
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = innerWidth * dpr; canvas.height = innerHeight * dpr;
+  draw();
+}
+function fitView() {
+  const s = Math.min(innerWidth / imgW, innerHeight / imgH) * 0.96;
+  view = { s, x: (innerWidth - imgW * s) / 2, y: (innerHeight - imgH * s) / 2 };
+}
+function draw() {
+  if (!baseCanvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = WATER; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.setTransform(dpr * view.s, 0, 0, dpr * view.s, dpr * view.x, dpr * view.y);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(baseCanvas, 0, 0);
+
+  const cs = cellSize, pad = 0.4;
+  const rect = i => ctx.fillRect((i % GRID_W) * cs - pad, Math.floor(i / GRID_W) * cs - pad, cs + pad * 2, cs + pad * 2);
+
+  for (const k in players) {
+    ctx.fillStyle = players[k].color;
+    (players[k].cells || []).forEach(rect);
+  }
+  // outline my territory
+  if (players[myKey]) {
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = Math.max(1, cs * 0.25);
+    ctx.beginPath();
+    const mine = new Set(players[myKey].cells || []);
+    mine.forEach(i => {
+      const x = (i % GRID_W) * cs, y = Math.floor(i / GRID_W) * cs;
+      if (!mine.has(i - GRID_W)) { ctx.moveTo(x, y); ctx.lineTo(x + cs, y); }
+      if (!mine.has(i + GRID_W)) { ctx.moveTo(x, y + cs); ctx.lineTo(x + cs, y + cs); }
+      if (!mine.has(i - 1) || x === 0) { ctx.moveTo(x, y); ctx.lineTo(x, y + cs); }
+      if (!mine.has(i + 1)) { ctx.moveTo(x + cs, y); ctx.lineTo(x + cs, y + cs); }
+    });
+    ctx.stroke();
+  }
+  // hover preview
+  if (hover && !players[myKey]) {
+    const cells = territoryAround(hover.cx, hover.cy, occupiedSet(players));
+    ctx.fillStyle = cells.length ? "rgba(255,255,255,.55)" : "rgba(255,70,70,.5)";
+    if (cells.length) cells.forEach(rect);
+    else ctx.fillRect(hover.cx * cs, hover.cy * cs, cs, cs);
+  }
+}
+
+/* ============ INPUT: pan / zoom / click ============ */
+const toCell = (px, py) => {
+  const ix = (px - view.x) / view.s, iy = (py - view.y) / view.s;
+  return { cx: Math.floor(ix / cellSize), cy: Math.floor(iy / cellSize) };
+};
+let drag = null;
+canvas.addEventListener("pointerdown", e => {
+  canvas.setPointerCapture(e.pointerId);
+  drag = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false };
+});
+canvas.addEventListener("pointermove", e => {
+  if (drag) {
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (Math.hypot(dx, dy) > 5) drag.moved = true;
+    if (drag.moved) { view.x = drag.vx + dx; view.y = drag.vy + dy; }
+  }
+  hover = toCell(e.clientX, e.clientY);
+  draw();
+});
+canvas.addEventListener("pointerup", e => {
+  if (drag && !drag.moved) { const c = toCell(e.clientX, e.clientY); claimSpot(c.cx, c.cy); }
+  drag = null;
+});
+canvas.addEventListener("pointerleave", () => { hover = null; draw(); });
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  const f = Math.exp(-e.deltaY * 0.0015);
+  const ns = Math.min(Math.max(view.s * f, 0.15), 40);
+  view.x = e.clientX - (e.clientX - view.x) * (ns / view.s);
+  view.y = e.clientY - (e.clientY - view.y) * (ns / view.s);
+  view.s = ns; draw();
+}, { passive:false });
+addEventListener("resize", () => { resize(); });
+
+document.getElementById("reset").onclick = async () => {
+  if (playersRef && myKey && players[myKey]) { await playersRef.child(myKey).remove(); setStatus("Position removed. Pick a new one."); }
+};
+
+/* ============ BOOT ============ */
+(async function init() {
+  try {
+    await loadMap();
+    fitView(); resize();
+    document.getElementById("loading").style.display = "none";
+  } catch (e) {
+    document.getElementById("loading").textContent = e.message;
+    return;
+  }
+  try {
+    myKey = await getPlayerKey();
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.database();
+    playersRef = db.ref("players");
+    playersRef.on("value", snap => {
+      players = snap.val() || {};
+      countEl.textContent = Object.keys(players).length + " player" + (Object.keys(players).length === 1 ? "" : "s");
+      const me = players[myKey];
+      swatchEl.style.background = me ? me.color : "#555";
+      if (me) setStatus("Your territory is placed. Waiting for the war…", "ok");
+      else setStatus("Choose your starting position on land");
+      draw();
+    }, err => setStatus("Firebase error: " + err.message, "err"));
+  } catch (e) {
+    console.error(e);
+    setStatus("Could not connect to Firebase: " + e.message, "err");
+  }
+})();
+</script>
+</body>
+</html>
